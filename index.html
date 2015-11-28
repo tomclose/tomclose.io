@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv='X-UA-Compatible' content='IE=edge;chrome=1' />
+    <title>Blog Title</title>
+    <link rel="alternate" type="application/atom+xml" title="Atom Feed" href="/feed.xml" />
+  </head>
+  <body>
+    
+    <div id="main" role="main">
+      
+  <h2><a href="/2014/07/16/investigating-ember-s-computed-properties.html">Investigating ember's computed properties</a> <span>Jul 16</span></h2>
+  <!-- use article.summary(250) if you have Nokogiri available to show just
+       the first 250 characters -->
+  <pre><code class="language-js">App.Person = Ember.Object.extend({
+  firstName: "Tom",
+  surname: "Close",
+
+  name: function() {
+    return this.get('firstName') + " " + this.get('surname');
+  }.property('firstName', 'surname'),
+});
+
+var tom = App.Person.create();
+</code></pre>
+
+<pre><code class="language-js">tom.firstName
+// "Tom"
+tom.firstName = "Thomas"
+// "Thomas"
+tom.get('firstName')
+// "Thomas"
+tom.firstName = "Alan"
+// "Alan"
+tom.get('name')
+// "Alan Close"
+tom.firstName = "Tom"
+// Error: Assertion Failed: You must use Ember.set() to access this property (of &lt;App.Person:ember381&gt;)
+</code></pre>
+
+<p>If we look at the object we see that we now have a few new functions:</p>
+
+<pre><code class="language-js">tom
+Class {constructor: function, _super: function, firstName: "Tom", surname: "Close", title: "Mr"…}
+// snip
+get firstName: function () {
+set firstName: function (value) {
+get surname: function () {
+set surname: function (value) {
+</code></pre>
+
+<p>Ember has used <code>defineProperty</code> to provide setters and getters for when you call
+<code>tom.firstName' and </code>tom.firstName=<code>. The setter will just raise the
+error that we hit above; the getter looks in the </code>meta[cache]` for the
+stored.</p>
+
+<p>The relevant file here is <code>ember-metal/libs/property-get.js</code>. I'm a
+little unsure why this isn't triggered when you just do
+<code>tom.get('firstName')</code> though.</p>
+
+<p>In <code>ember-metal/libs/property-set.js</code> we see that the setter calls
+<code>propertyDidChange(obj, keyname)</code> on setting (if the property is a
+vanilla non-descriptor sort). This notifies dependent keys, chains and
+observers (if anything is watching that key). We can call these
+manually.</p>
+
+<p>For the dependent keys, it iterates over the graph (stored in
+meta[deps]), calling propertyDidChange on each key. On vanilla keys this
+does nothing, but on descriptors it calls <code>.didChange(obj, keyname)</code>.</p>
+
+<p>Calling <code>didChange(obj, keyname)</code> on a ComputedProperty sets the cached
+vaule to <code>undefined</code> and removes the dependentKeys.
+~~~js
+ComputedPropertyPrototype.didChange = function(obj, keyName) {
+  // _suspended is set via a CP.set to ensure we don't clear
+  // the cached value set by the setter
+  if (this._cacheable &amp;&amp; this._suspended !== obj) {
+    var meta = metaFor(obj);
+    if (meta.cache[keyName] !== undefined) {
+      meta.cache[keyName] = undefined;
+      removeDependentKeys(this, obj, keyName, meta);
+    }
+  }
+};
+~~~</p>
+
+<p>RemoveDependentKeys
+1. Looks up on the descriptor to see what its dependent keys are
+('firstName', 'surname')
+2. Reduces the count of the property ('name') in the dependent keys.
+3. Stops watching.</p>
+
+<pre><code class="language-js">printMeta(tom)
+== Cache ==
+name: Tom Close
+== Values ==
+firstName: Tom
+surname: Close
+== Watching ==
+firstName: 1
+surname: 1
+== Deps ==
+firstName:
+  name: 1
+surname:
+  name: 1
+== Chain watchers ==
+== Chains ==
+
+
+&gt; Em.propertyDidChange(tom, 'name')
+undefined
+&gt; printMeta(tom)
+== Cache ==
+== Values ==
+firstName: Tom
+surname: Close
+== Watching ==
+firstName: 0
+surname: 0
+== Deps ==
+firstName:
+  name: 0
+surname:
+  name: 0
+== Chain watchers ==
+== Chains ==
+</code></pre>
+
+<p>So that's ok for properties. What about chains?</p>
+
+<p>Aside: defining properties:
+~~~js
+  // define a simple property
+  Ember.defineProperty(contact, 'lastName', undefined, 'Jolley');</p>
+
+<p>// define a computed property
+  Ember.defineProperty(contact, 'fullName', Ember.computed(function() {
+    return this.firstName+' '+this.lastName;
+  }).property('firstName', 'lastName'));
+~~~</p>
+
+<pre><code class="language-js">tom.get('locationName')
+null
+printMeta(tom)
+== Cache ==
+locationName: null
+== Values ==
+location: null
+== Watching ==
+location.name:
+location: 1
+== Deps ==
+location.name:
+  locationName: 1
+== Chain watchers ==
+location:
+  0:
+    {Key: location, Value: null, Object: &lt;App.Person:ember252&gt;, Watching: true, Count: 1}
+    -&gt; {Key: null, Value: &lt;App.Person:ember252&gt;, Object: undefined, Watching: false, Count: 0}
+== Chains ==
+root: {Key: null, Value: &lt;App.Person:ember252&gt;, Object: undefined, Watching: false, Count: 0}
+  location: {Key: location, Value: null, Object: &lt;App.Person:ember252&gt;, Watching: true, Count: 1}
+    name: {Key: name, Value: undefined, Object: null, Watching: true, Count: 1}
+undefined
+</code></pre>
+
+<p>ChainNode.chainsWillChange
+ChainNode.willChange</p>
+
+<p>seems to just walk the chain lattice, collecting the object/property
+pairs to fire the propertyWillChange events on. Which in turn
+essentially just fires <code>didChange</code> on the descriptors. Which just clears
+the cache and removes the dependent keys</p>
+
+
+
+
+    </div>
+    
+    <aside>
+      <h2>Recent Articles</h2>
+      <ol>
+          <li><a href="/2014/07/16/investigating-ember-s-computed-properties.html">Investigating ember's computed properties</a> <span>Jul 16</span></li>
+      </ol>
+
+      <h2>Tags</h2>
+      <ol>
+      </ol>
+
+      <h2>By Year</h2>
+      <ol>
+          <li><a href="/2014.html">2014 (1)</a></li>
+      </ol>
+    </aside>
+  </body>
+</html>

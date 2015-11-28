@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Blog Name</title>
+  <subtitle>Blog subtitle</subtitle>
+  <id>http://blog.url.com/</id>
+  <link href="http://blog.url.com/"/>
+  <link href="http://blog.url.com/feed.xml" rel="self"/>
+  <updated>2014-07-16T12:33:00+01:00</updated>
+  <author>
+    <name>Blog Author</name>
+  </author>
+  <entry>
+    <title>Investigating ember's computed properties</title>
+    <link rel="alternate" href="http://blog.url.com/2014/07/16/investigating-ember-s-computed-properties.html"/>
+    <id>http://blog.url.com/2014/07/16/investigating-ember-s-computed-properties.html</id>
+    <published>2014-07-16T12:33:00+01:00</published>
+    <updated>2015-11-28T16:12:55+00:00</updated>
+    <author>
+      <name>Article Author</name>
+    </author>
+    <content type="html">&lt;pre&gt;&lt;code class="language-js"&gt;App.Person = Ember.Object.extend({
+  firstName: "Tom",
+  surname: "Close",
+
+  name: function() {
+    return this.get('firstName') + " " + this.get('surname');
+  }.property('firstName', 'surname'),
+});
+
+var tom = App.Person.create();
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;pre&gt;&lt;code class="language-js"&gt;tom.firstName
+// "Tom"
+tom.firstName = "Thomas"
+// "Thomas"
+tom.get('firstName')
+// "Thomas"
+tom.firstName = "Alan"
+// "Alan"
+tom.get('name')
+// "Alan Close"
+tom.firstName = "Tom"
+// Error: Assertion Failed: You must use Ember.set() to access this property (of &amp;lt;App.Person:ember381&amp;gt;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;If we look at the object we see that we now have a few new functions:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class="language-js"&gt;tom
+Class {constructor: function, _super: function, firstName: "Tom", surname: "Close", title: "Mr"…}
+// snip
+get firstName: function () {
+set firstName: function (value) {
+get surname: function () {
+set surname: function (value) {
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Ember has used &lt;code&gt;defineProperty&lt;/code&gt; to provide setters and getters for when you call
+&lt;code&gt;tom.firstName' and &lt;/code&gt;tom.firstName=&lt;code&gt;. The setter will just raise the
+error that we hit above; the getter looks in the &lt;/code&gt;meta[cache]` for the
+stored.&lt;/p&gt;
+
+&lt;p&gt;The relevant file here is &lt;code&gt;ember-metal/libs/property-get.js&lt;/code&gt;. I'm a
+little unsure why this isn't triggered when you just do
+&lt;code&gt;tom.get('firstName')&lt;/code&gt; though.&lt;/p&gt;
+
+&lt;p&gt;In &lt;code&gt;ember-metal/libs/property-set.js&lt;/code&gt; we see that the setter calls
+&lt;code&gt;propertyDidChange(obj, keyname)&lt;/code&gt; on setting (if the property is a
+vanilla non-descriptor sort). This notifies dependent keys, chains and
+observers (if anything is watching that key). We can call these
+manually.&lt;/p&gt;
+
+&lt;p&gt;For the dependent keys, it iterates over the graph (stored in
+meta[deps]), calling propertyDidChange on each key. On vanilla keys this
+does nothing, but on descriptors it calls &lt;code&gt;.didChange(obj, keyname)&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Calling &lt;code&gt;didChange(obj, keyname)&lt;/code&gt; on a ComputedProperty sets the cached
+vaule to &lt;code&gt;undefined&lt;/code&gt; and removes the dependentKeys.
+~~~js
+ComputedPropertyPrototype.didChange = function(obj, keyName) {
+  // _suspended is set via a CP.set to ensure we don't clear
+  // the cached value set by the setter
+  if (this._cacheable &amp;amp;&amp;amp; this._suspended !== obj) {
+    var meta = metaFor(obj);
+    if (meta.cache[keyName] !== undefined) {
+      meta.cache[keyName] = undefined;
+      removeDependentKeys(this, obj, keyName, meta);
+    }
+  }
+};
+~~~&lt;/p&gt;
+
+&lt;p&gt;RemoveDependentKeys
+1. Looks up on the descriptor to see what its dependent keys are
+('firstName', 'surname')
+2. Reduces the count of the property ('name') in the dependent keys.
+3. Stops watching.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class="language-js"&gt;printMeta(tom)
+== Cache ==
+name: Tom Close
+== Values ==
+firstName: Tom
+surname: Close
+== Watching ==
+firstName: 1
+surname: 1
+== Deps ==
+firstName:
+  name: 1
+surname:
+  name: 1
+== Chain watchers ==
+== Chains ==
+
+
+&amp;gt; Em.propertyDidChange(tom, 'name')
+undefined
+&amp;gt; printMeta(tom)
+== Cache ==
+== Values ==
+firstName: Tom
+surname: Close
+== Watching ==
+firstName: 0
+surname: 0
+== Deps ==
+firstName:
+  name: 0
+surname:
+  name: 0
+== Chain watchers ==
+== Chains ==
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;So that's ok for properties. What about chains?&lt;/p&gt;
+
+&lt;p&gt;Aside: defining properties:
+~~~js
+  // define a simple property
+  Ember.defineProperty(contact, 'lastName', undefined, 'Jolley');&lt;/p&gt;
+
+&lt;p&gt;// define a computed property
+  Ember.defineProperty(contact, 'fullName', Ember.computed(function() {
+    return this.firstName+' '+this.lastName;
+  }).property('firstName', 'lastName'));
+~~~&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class="language-js"&gt;tom.get('locationName')
+null
+printMeta(tom)
+== Cache ==
+locationName: null
+== Values ==
+location: null
+== Watching ==
+location.name:
+location: 1
+== Deps ==
+location.name:
+  locationName: 1
+== Chain watchers ==
+location:
+  0:
+    {Key: location, Value: null, Object: &amp;lt;App.Person:ember252&amp;gt;, Watching: true, Count: 1}
+    -&amp;gt; {Key: null, Value: &amp;lt;App.Person:ember252&amp;gt;, Object: undefined, Watching: false, Count: 0}
+== Chains ==
+root: {Key: null, Value: &amp;lt;App.Person:ember252&amp;gt;, Object: undefined, Watching: false, Count: 0}
+  location: {Key: location, Value: null, Object: &amp;lt;App.Person:ember252&amp;gt;, Watching: true, Count: 1}
+    name: {Key: name, Value: undefined, Object: null, Watching: true, Count: 1}
+undefined
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;ChainNode.chainsWillChange
+ChainNode.willChange&lt;/p&gt;
+
+&lt;p&gt;seems to just walk the chain lattice, collecting the object/property
+pairs to fire the propertyWillChange events on. Which in turn
+essentially just fires &lt;code&gt;didChange&lt;/code&gt; on the descriptors. Which just clears
+the cache and removes the dependent keys&lt;/p&gt;
+
+</content>
+  </entry>
+</feed>
