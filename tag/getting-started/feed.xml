@@ -1,37 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
-  <title>Middleman</title>
-  <subtitle>Makes developing websites simple.</subtitle>
+  <title>Middleman: Getting Started</title>
+  <subtitle>Posts tagged with Getting Started</subtitle>
   <id>http://www.example.com</id>
   <link href="http://www.example.com"/>
-  <link href="http://www.example.com/feed.xml" rel="self"/>
+  <link href="http://www.example.com/tag/getting-started/feed.xml" rel="self"/>
   <updated>2014-07-16T12:33:00+01:00</updated>
   <author>
     <name>Middleman</name>
   </author>
-  <entry>
-    <title>Investigating ember's computed properties</title>
-    <link rel="alternate" href="http://www.example.com/2014/07/16/investigating-ember-s-computed-properties/"/>
-    <id>http://www.example.com/2014/07/16/investigating-ember-s-computed-properties/</id>
-    <published>2014-07-16T12:33:00+01:00</published>
-    <updated>2015-11-28T16:12:55+00:00</updated>
-    <author>
-      <name>Middleman</name>
-    </author>
-    <summary type="html">App.Person = Ember.Object.extend({
-  firstName: "Tom",
-  surname: "Close",
-
-  name: function() {
-    return this.get('firstName') + " " + this.get('surname');
-  }.property('firstName', 'surname'),
-});
-
-var tom = App.Person.create();
-
-tom.firstName
-//</summary>
-  </entry>
   <entry>
     <title>Welcome to Ghost</title>
     <link rel="alternate" href="http://www.example.com/2013/10/26/welcome-to-ghost/"/>
