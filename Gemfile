@@ -14,6 +14,10 @@ gem "middleman-blog"
 
 gem "middleman-livereload", "~> 3.4.3"
 
+gem 'bitters'
+gem 'bourbon'
+gem 'neat'
+
 gem 'redcarpet', '~> 3.3', '>= 3.3.3'
 
 # For feed.xml.builder
